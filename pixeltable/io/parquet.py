@@ -89,6 +89,17 @@ def export_parquet(
 
         for batch_num, record_batch in enumerate(to_record_batches(query, partition_size_bytes)):
             output_path = temp_path / f'part-{batch_num:05d}.parquet'
+            if int(pa.__version__.split('.')[0]) < 26:
+                for field in record_batch.schema:
+                    if (
+                        isinstance(field.type, pa.FixedShapeTensorType)
+                        and record_batch.column(field.name).null_count > 0
+                    ):
+                        raise excs.RequestError(
+                            excs.ErrorCode.UNSUPPORTED_OPERATION,
+                            f'export_parquet(): column {field.name!r} contains null arrays; '
+                            f'writing them to Parquet requires pyarrow >= 26 (found {pa.__version__})',
+                        )
             arrow_tbl = pa.Table.from_batches([record_batch])
             pa.parquet.write_table(arrow_tbl, str(output_path))
 

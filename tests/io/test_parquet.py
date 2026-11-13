@@ -453,6 +453,27 @@ class TestParquet:
         pxt.io.export_parquet(t.order_by(t.idx), export_path)
         validate_parquet_files(export_path, rows)
 
+    def test_export_array_with_nulls(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
+        if int(pa.__version__.split('.')[0]) < 26:
+            pytest.skip('Writing null fixed-size list entries to Parquet requires pyarrow >= 26')
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('test_array_nulls'), {'idx': pxt.Int | None, 'a1': pxt.Array[(2, 3), np.int64] | None})
+        arr = np.arange(6, dtype=np.int64).reshape(2, 3)
+        rows: list[dict] = [{'idx': 0, 'a1': arr}, {'idx': 1, 'a1': None}, {'idx': 2, 'a1': arr + 10}]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+
+        export_path = tmp_path / 'export.pq'
+        pxt.io.export_parquet(t.order_by(t.idx), export_path)
+
+        # round trip
+        t2 = pxt.io.import_parquet(p('test_array_nulls_rt'), parquet_path=str(export_path))
+        assert t2.get_metadata()['columns']['a1']['type_'] == 'Array[(2, 3), int64] | None'
+        res = t2.order_by(t2.idx).collect()
+        assert res['idx'] == [0, 1, 2]
+        assert res['a1'][1] is None
+        assert np.array_equal(res['a1'][0], arr)
+        assert np.array_equal(res['a1'][2], arr + 10)
+
     def test_export_ragged_array(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test_array1'), {'idx': pxt.Int | None, 'a1': pxt.Array[(None, None), np.int64] | None})

@@ -157,8 +157,22 @@ def _to_record_batch(
                     f'schema_overrides type {field.type} does not fit the data for column {field.name!r}: {e}',
                 ) from e
         elif isinstance(field.type, pa.FixedShapeTensorType):
-            stacked_arr = np.stack(column_vals[field.name])
-            pa_arrays.append(pa.FixedShapeTensorArray.from_numpy_ndarray(stacked_arr))
+            vals = column_vals[field.name]
+            is_null = [val is None for val in vals]
+            if any(is_null):
+                # null cells have no ndarray to stack: stack placeholder zeros, then mask them out of the storage
+                shape = tuple(field.type.shape)
+                dtype = field.type.value_type.to_pandas_dtype()
+                vals = [np.zeros(shape, dtype=dtype) if val is None else val for val in vals]
+            stacked_arr = np.stack(vals)
+            tensor_arr: pa.ExtensionArray = pa.FixedShapeTensorArray.from_numpy_ndarray(stacked_arr)
+            if any(is_null):
+                storage = tensor_arr.storage
+                masked_storage = pa.FixedSizeListArray.from_arrays(
+                    storage.values, storage.type.list_size, mask=pa.array(is_null)
+                )
+                tensor_arr = pa.ExtensionArray.from_storage(field.type, masked_storage)
+            pa_arrays.append(tensor_arr)
         elif pxt_type.is_array_type() and isinstance(field.type, pa.ListType):
             # convert ragged arrays to nested lists
             list_col_vals = [val.tolist() if val is not None else None for val in column_vals[field.name]]
@@ -351,7 +365,13 @@ def to_pydict(batch: pa.Table | pa.RecordBatch) -> dict[str, list | np.ndarray]:
             # we want a list of ndarrays of the correct shape
             if isinstance(col, pa.ChunkedArray):
                 col = col.combine_chunks()
-            out[name] = list(cast(pa.FixedShapeTensorArray, col).to_numpy_ndarray())
+            tensor_col = cast(pa.FixedShapeTensorArray, col)
+            if tensor_col.null_count == 0:
+                out[name] = list(tensor_col.to_numpy_ndarray())
+            else:
+                # to_numpy_ndarray() rejects nulls: convert the non-null slots, then put the nulls back
+                arrs = iter(tensor_col.filter(tensor_col.is_valid()).to_numpy_ndarray())
+                out[name] = [None if is_null else next(arrs) for is_null in tensor_col.is_null().to_pylist()]
         else:
             # for the rest, use pydict to preserve python types
             out[name] = col.to_pylist()
