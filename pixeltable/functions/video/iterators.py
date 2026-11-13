@@ -65,8 +65,8 @@ class frame_iterator(pxt.PxtIterator[Frame]):
     Args:
         fps: Number of frames to extract per second of video. This may be a fractional value, such as 0.5, and must be
             positive. If None, or greater than the video's frame rate, all frames are extracted.
-        num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If
-            `num_frames` is greater than the number of frames in the video, all frames will be extracted.
+        num_frames: Exact number of frames to extract; must be positive. The frames will be spaced as evenly as
+            possible. If `num_frames` is greater than the number of frames in the video, all frames will be extracted.
         keyframes_only: If True, only extract keyframes.
 
     Examples:
@@ -335,6 +335,8 @@ class frame_iterator(pxt.PxtIterator[Frame]):
             )
         if fps is not None and (not isinstance(fps, (int, float)) or fps <= 0.0):
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`fps` must be a positive number')
+        if num_frames is not None and (not isinstance(num_frames, int) or num_frames <= 0):
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`num_frames` must be a positive integer')
 
 
 class LegacyFrame(TypedDict):

@@ -187,6 +187,11 @@ class TestVideo:
             )
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`fps` must be a positive number'):
             _ = pxt.create_view(p('invalid_fps'), videos, iterator=frame_iterator(videos.video, fps=0))
+        for num_frames in (0, -1):
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`num_frames` must be a positive integer'):
+                _ = pxt.create_view(
+                    p('invalid_num_frames'), videos, iterator=frame_iterator(videos.video, num_frames=num_frames)
+                )
 
     def test_frame_counts(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
         p = db_root.make_catalog_path
